@@ -2,13 +2,13 @@ CC=gcc
 CFLAGS=-Wall -g
 LDFLAGS=-pthread
 
-all: server deliver
+all: server client
 
 server: server.o
 	$(CC) server.o -o server $(LDFLAGS)
 
-deliver: deliver.o
-	$(CC) deliver.o -o deliver $(LDFLAGS)
+deliver: client.o
+	$(CC) client.o -o client $(LDFLAGS)
 
 clean:
-	rm -f *.o server deliver
+	rm -f *.o server client
