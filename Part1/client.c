@@ -50,7 +50,7 @@ void send_message(struct message msg);
 int parse_command(char *input);
 void serialize_message(struct message msg, char *output);
 void deserialize_message(char *input, struct message *msg);
-int connect_to_server(char *ip, char* port);
+void connect_to_server(char *ip, char* port);
 
 int main(int argc, char const *argv[]) {
     isQuit = false;
@@ -133,7 +133,7 @@ int main(int argc, char const *argv[]) {
     return 0;
 }
 
-int connect_to_server(char *ip, char * port) {
+void connect_to_server(char *ip, char * port) {
     //references Beej's Programming Guide
     struct addrinfo hints, *servinfo, *p;
     int rv;
@@ -164,7 +164,6 @@ int connect_to_server(char *ip, char * port) {
     }
     
     freeaddrinfo(servinfo);
-    return 0;
 
     /*
     struct sockaddr_in server;
