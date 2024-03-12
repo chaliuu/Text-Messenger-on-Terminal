@@ -4,7 +4,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <pthread.h>
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/types.h>
@@ -25,26 +24,24 @@ struct message {
     unsigned char data[MAX_DATA];
 };
 
-int sockfd = -1; //Socket file descriptor
-bool isLoggedIn;
-bool isInSesh;
-bool isQuit;
-pthread_t recv_thread;
-char IP[256];
-char PORT[256];
-char cID[MAX_NAME];
-char sID[MAX_DATA];
-struct message msg; //message to send from input
-struct message recv_msg; //message recieved from server
-fd_set readfds;
-struct timeval tv;
-int retval;
+  int sockfd = -1; //Socket file descriptor
+    bool isLoggedIn;
+    bool isInSesh;
+    bool isQuit;
+    bool isConnected = false;
+    char IP[256];
+    char PORT[256];
+    char cID[MAX_NAME] = {0};
+    char sID[MAX_DATA] = {0};
+    struct message msg; //message to send from input
+    struct message recv_msg; //message recieved from server
 
-char input[MAX_DATA + MAX_NAME] = {0};
-char server_reply[MAX_DATA + MAX_NAME + 20];
-char send_buffer[MAX_DATA + MAX_NAME + 20]; // +20 for type, size, and separators
-char recv_buffer[MAX_DATA + MAX_NAME] = {0};
+    struct timeval tv;
+    int retval;
 
+    char input[MAX_DATA + MAX_NAME] = {0};
+    char send_buffer[MAX_DATA + MAX_NAME + 20]; // +20 for type, size, and separators
+    char recv_buffer[MAX_DATA + MAX_NAME] = {0};
 
 void send_message(struct message msg);
 int parse_command(char *input);
@@ -54,10 +51,17 @@ int connect_to_server(char *ip, char* port);
 
 int main(int argc, char const *argv[]) {
     isQuit = false;
+    fd_set readfds;
     // Main loop for handling user input
     while (!isQuit) {
+        //wipe buffer
+        memset(&input, 0, MAX_DATA + MAX_NAME);
+        memset(&send_buffer, 0, MAX_DATA + MAX_NAME);
+        memset(&recv_buffer, 0, MAX_DATA + MAX_NAME);
+
         FD_ZERO(&readfds);
         FD_SET(STDIN_FILENO, &readfds); // Standard input
+        FD_SET(sockfd, &readfds);
         if (sockfd != -1) {
             FD_SET(sockfd, &readfds);
         }
@@ -77,16 +81,26 @@ int main(int argc, char const *argv[]) {
                     input[strcspn(input, "\n")] = 0; // Remove trailing newline
                     parse_command(input);
                 }
-                if (msg.type == LOGIN) {
+                if (msg.type == LOGIN){
+                    
                     if (connect_to_server(IP, PORT) != 0) {
                         printf("Failed to connect to the server.\n");
                         continue;
                     }
-                } else if (sockfd != -1 && isLoggedIn) {
+                        isConnected = true;
+                
+                    printf("mssg type: %d \n", msg.type);
+                    printf("mssg data: %s \n", msg.data);
+                    printf("isLoggedIn %d\n", isLoggedIn);
+
+                    send_message(msg);
+                }else if (msg.type == EXIT){
+                    send_message(msg);
+                    memset(cID,0,sizeof(cID)); //clear cID
+                }else if (sockfd != -1 && isLoggedIn) {
                 // Only send messages if logged in (i.e., socket is valid)
                     send_message(msg);
-                } else if (sockfd != -1 && !(isLoggedIn)){
-                    printf("isLoggedIn: %d\n",isLoggedIn);
+                }else if (sockfd != -1 && !isLoggedIn){
                     printf("Not logged in. Please log in\n");
                 }
                 else {
@@ -100,26 +114,29 @@ int main(int argc, char const *argv[]) {
             
             //check messages from server
             if (sockfd != -1 && FD_ISSET(sockfd, &readfds)) {
+                printf("Receiving!\n");
                 int numBytes = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
                 printf("Numbytes %d\n",numBytes);
                 if (numBytes > 0) {
-                    memset(&msg, 0, sizeof(msg));
+                    memset(&recv_msg, 0, sizeof(recv_msg));
                     deserialize_message(recv_buffer, &recv_msg);
-                    if(msg.type == MESSAGE){
+                    if(recv_msg.type == MESSAGE){
+                        //printf("%s", recv_buffer);
                         printf("%s: %s\n", recv_msg.source, recv_msg.data); //print received messages
                     }else if (recv_msg.type == LO_NAK || recv_msg.type == JN_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
                     }else if (recv_msg.type == LO_ACK){
-                        isLoggedIn = true;
                         printf("Sucessfully logged in!\n");
                     }else if (recv_msg.type == JN_ACK){
                         isInSesh = true;
                         strcpy(sID, (char *)msg.data);
                         printf("Session joined with ID: %s\n", recv_msg.data);
                     }else if (recv_msg.type == NS_ACK){
+                        isInSesh = true;
+                        strcpy(sID, (char *)msg.data);
                         printf("Session created!\n");
                     }else if (recv_msg.type == QU_ACK){
-                        printf("/*%s*/", recv_msg.data);
+                        printf("/*%s*/\n", recv_msg.data);
                     }
                 } else if (numBytes == 0){
                     printf("Connection closed by server\n");
@@ -130,6 +147,8 @@ int main(int argc, char const *argv[]) {
                     close(sockfd);
                     sockfd = -1; // Reset sockfd to indicate we're not connected
                 }
+            }else if (sockfd == -1){
+                printf("problem!\n");
             }
         }else{
             printf("TIMEOUT! \n");
@@ -208,6 +227,7 @@ void send_message(struct message msg) {
     if(send(sockfd, send_buffer, strlen(send_buffer), 0) < 0) {
         puts("Send failed");
     }
+    printf("mssg_sent!: %s\n", send_buffer);
 }
 
 // Parses user input into a message structure
@@ -218,13 +238,13 @@ int parse_command(char *input) {
         msg.type = LOGIN;
         sscanf(input, "/login %s %s %s %s", msg.source, msg.data, IP, PORT); 
         strcpy(cID, (char *)msg.source);
-    } else if(strcmp(input, "/logout") == 0) {
+        isLoggedIn = true;
+    } else if(strncmp(input, "/logout", 8) == 0) {
         if(isLoggedIn){
             isLoggedIn = false;
             isInSesh = false;
             msg.type = EXIT;
             printf("Logged out of client with ID: %s\n", cID);
-            memset(cID,0,sizeof(cID)); //clear cID
         }else{
             printf("Not logged In. Please log in before logging out\n");
         }
@@ -234,8 +254,9 @@ int parse_command(char *input) {
         }else{
             sscanf(input, "/joinsession %s", msg.data);
             msg.type = JOIN;
+            strcpy((char *)msg.source, cID);
         }
-    } else if(strcmp(input, "/leavesession") == 0) {
+    } else if(strncmp(input, "/leavesession", 13) == 0) {
         if(isInSesh){
             msg.type = LEAVE_SESS;
             isInSesh = false;
@@ -245,13 +266,18 @@ int parse_command(char *input) {
             printf("Not in a session. Please join a session before leaving one.\n");
         }
     } else if(strncmp(input, "/createsession", 14) == 0) {
-        msg.type = NEW_SESS;
+        if(isInSesh){
+            printf("Already in seshion %s\n. Leave session before creating another one.\n", sID);
+        }else{
+            msg.type = NEW_SESS;
+        }
         sscanf(input, "/createsession %s", msg.data);
-    } else if(strcmp(input, "/list") == 0) {
+    } else if(strncmp(input, "/list", 5) == 0) {
         msg.type = QUERY;
-    } else if(strcmp(input, "/quit") == 0) {
+    } else if(strncmp(input, "/quit", 5) == 0) {
         isLoggedIn = false;
         isInSesh = false;
+        isConnected = false;
         msg.type = EXIT;
         isQuit = true;
         printf("Quiting Program!\n");
@@ -260,6 +286,7 @@ int parse_command(char *input) {
         strncpy((char *)msg.data, input, MAX_DATA);
     }
 
+    strcpy((char *)msg.source, cID);
     msg.size = strlen((char *)msg.data); // Set the size of the data
     return 0;
 }
