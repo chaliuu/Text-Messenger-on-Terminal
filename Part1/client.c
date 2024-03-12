@@ -66,7 +66,7 @@ int main(int argc, char const *argv[]) {
             FD_SET(sockfd, &readfds);
         }
 
-        // Set timeout (for 2 seconds)
+        // Set timeout (for 5 minutes)
         tv.tv_sec = 300;
         tv.tv_usec = 0;
 
