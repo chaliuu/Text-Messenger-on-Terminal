@@ -29,8 +29,8 @@
  * 
  */
 
-struct CLIENT_NODE* client_info_head = NULL;
-struct SESSION_NODE* session_info_head = NULL;
+struct CLIENT_NODE* client_head = NULL;
+struct SESSION_NODE* session_head = NULL;
 
 #define LOGIN_FILE "login.txt"
 
@@ -52,8 +52,8 @@ int main(int argc, char** argv) {
     }
     
     // read login information
-    client_info_head = read_login();
-    if (client_info_head == NULL) {
+    client_head = read_login();
+    if (client_head == NULL) {
         printf("no client login information is found\n");
         exit(1);
     }
@@ -70,10 +70,7 @@ int main(int argc, char** argv) {
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE; // use my IP
-    int highest_fd = sockfd;
-    fd_set active_fd;
-    FD_ZERO(&active_fd);
-    FD_SET(sockfd, &active_fd);
+    
     if ((rv = getaddrinfo(NULL, argv[1], &hints, &servinfo)) != 0) {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
         exit(1);
@@ -116,13 +113,11 @@ int main(int argc, char** argv) {
     
     int fdmax = sockfd;
     fd_set master;
-    fd_set read_fds;
     FD_ZERO(&master);
-    FD_ZERO(&read_fds);
     FD_SET(sockfd, &master);
 
     while (1) {
-        read_fds = master;
+        fd_set read_fds = master;
 
         if (select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1) {
             printf("Select error\n");
@@ -143,12 +138,12 @@ int main(int argc, char** argv) {
                         continue;
                     }
                     // add the new fd to the file set
+                    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof s);
+                    printf("server: new connection from %s\n", s);
                     FD_SET(new_fd, &master);
                     if (new_fd > fdmax) { // keep track of the max
                         fdmax = new_fd;
                     }
-                    inet_ntop(client_addr.ss_family, get_in_addr((struct sockaddr *)&client_addr), s, sizeof s);
-                    printf("server: new connection from %s\n", s);
                 }
                 else{
                     // handle regular communication with clients that have already connected
@@ -160,12 +155,12 @@ int main(int argc, char** argv) {
                     }
                     if(nbytes == 0 || (nbytes == -1 && errno == 54)){
                         // Client disconnected
-                        struct CLIENT_NODE* curr = client_info_head;
+                        struct CLIENT_NODE* curr = client_head;
                         while (curr != NULL) {
                             if (curr->sockfd == i) {
-                                struct SESSION_NODE* session = curr->active_session;
-                                if (session) {
-                                    remove_user_from_session(session, curr);
+                                struct SESSION_NODE* Session = curr->active_session;
+                                if (Session) {
+                                    remove_user_from_session(Session, curr);
                                 }
                                 curr->active_session = NULL;
                                 curr->sockfd = -1;
@@ -226,6 +221,7 @@ int main(int argc, char** argv) {
     return (EXIT_SUCCESS);
 }
 
+
 struct CLIENT_NODE* read_login() {
     // Reads the login information from a text file, login.txt
     FILE* fp = fopen(LOGIN_FILE, "r");
@@ -258,6 +254,7 @@ struct CLIENT_NODE* read_login() {
         curr->next = NULL;
         curr->active_session = NULL;
         curr->sockfd = -1;
+        printf("success\n");
     }
     free(line);
     fclose(fp);
@@ -265,7 +262,7 @@ struct CLIENT_NODE* read_login() {
 }
 
 struct CLIENT_NODE* get_client_info (const char* username) {
-    struct CLIENT_NODE* curr = client_info_head;
+    struct CLIENT_NODE* curr = client_head;
     while (curr != NULL) {
         if (strcmp(username, curr->username) == 0) {
             return curr;
@@ -278,11 +275,13 @@ struct CLIENT_NODE* get_client_info (const char* username) {
 
 
 struct SESSION_NODE* get_session_info (const char* session_id) {
-    struct SESSION_NODE* curr = session_info_head;
+    struct SESSION_NODE* curr = session_head;
     while (curr != NULL) {
         if (strcmp(session_id, curr->session_id) == 0) {
+            printf("%s\n",curr->session_id);
             return curr;
         }
+        printf("%s\n",curr->session_id);
         curr = curr -> next;
     }
     return NULL;
@@ -305,6 +304,37 @@ void send_message_to_client(int sockfd, struct message* msg) {
     free(msg_str);
 }
 
+// Helps with deleting a user from a session, and clearing the session too if it's now empty
+void remove_user_from_session(struct SESSION_NODE* session, struct CLIENT_NODE* client) {
+    for (int i = 0; i < SESSION_CAPACITY; i++) {
+        if (session->clients[i] == client) {
+            session->clients[i] = NULL;
+            session->num_client--;
+
+            if (session->num_client == 0) {
+                struct SESSION_NODE* p = session->prev;
+                struct SESSION_NODE* n = session->next;
+                
+                printf("The session %s is deleted\n",session->session_id);
+                // No more clients in this session, erase it
+                if (p && n) {
+                    p->next = n;
+                    n->prev = p;
+                } else if (p) {
+                    p->next = NULL;
+                } else {
+                    if (n) 
+                        n->prev = NULL;
+                    session_head = n;
+                }
+            } else {
+                printf("There are still %d users in session %s\n", session->num_client, session->session_id);
+            }
+            break;
+        }
+    }
+}
+
 int handle_login(struct message* msg, int sockfd) {
     // msg is the login message
     // Must check the username and password against the known database.
@@ -317,6 +347,7 @@ int handle_login(struct message* msg, int sockfd) {
     struct CLIENT_NODE* Username = get_client_info(msg->source);
     //check if username exists
     if (Username) {
+        printf("success for login\n");
         //check if password is valid 
         if (strcmp(msg->data, Username->password) == 0) {
             if (Username->sockfd != -1) {
@@ -325,7 +356,8 @@ int handle_login(struct message* msg, int sockfd) {
                 // successful log in
                 Username->sockfd = sockfd;
                 newMsg.type = LO_ACK;
-                strcpy(newMsg.data, "");
+                strcpy(newMsg.data, "successful log in ");
+                printf("success\n");
             }
         } else {
             strcpy(newMsg.data, "invalid password");
@@ -402,7 +434,7 @@ void handle_join_session(struct message* msg, int sockfd) {
             strcpy(newMsg.data, errorMsg);
         }
     }else{
-        //The user is not authenticated 
+        //The client is not recognized 
         sprintf(errorMsg, "%s - client ID unrecognized.", msg->source);
         strcpy(newMsg.data, errorMsg);
     }
@@ -432,16 +464,17 @@ void handle_new_session(struct message* msg, int sockfd) {
             //check if a session already exists with this session ID
             struct SESSION_NODE* Session = get_session_info(msg->data);
             if(Session == NULL){
+                printf("create successfully\n");
                 //add session node to head  of linked list
                 struct SESSION_NODE *newSession = malloc(sizeof(struct SESSION_NODE));
-                if (session_info_head) {
-                    session_info_head->prev = newSession;
+                if (session_head) {
+                    session_head->prev = newSession;
                 }
-                newSession->next = session_info_head;
+                newSession->next = session_head;
                 newSession->prev = NULL;
-                session_info_head = newSession;
+                session_head = newSession;
                 assert(msg->size <= MAX_SESSION_ID); //is this necessary?
-                strncpy(newSession->session_id, msg->data, msg->size);
+                strcpy(newSession->session_id, msg->data);
                 newSession->num_client = 1;
                 for (int client = 0; client < SESSION_CAPACITY; client++) {
                     if (client == 0) {
@@ -460,15 +493,15 @@ void handle_new_session(struct message* msg, int sockfd) {
             }
         }else if(Username->active_session != NULL){
             //client in another session already
-            sprintf(errorMsg, "%s - you need to exit the current session first", msg->source);
+            sprintf(errorMsg, "%s - you need to exit the current session", msg->source);
             strcpy(newMsg.data, errorMsg);
         }else{
             //client hasn't logged in
-            sprintf(errorMsg, "%s - you need to log in first", msg->source);
+            sprintf(errorMsg, "%s - you need to log in", msg->source);
             strcpy(newMsg.data, errorMsg);
         }
     }else{
-        //the user is not authenticated
+        //the client is not recognized
         sprintf(errorMsg, "%s - client ID unrecognized", msg->source);
         strcpy(newMsg.data, errorMsg);
     }
@@ -482,18 +515,18 @@ void handle_send_message(struct message* msg, int sockfd) {
         if(Username->sockfd == sockfd){
             struct SESSION_NODE* Session = Username->active_session;
             if(Session){
-                char* str = malloc(msg->size + 128);
-                serialize_message(*msg,str);
+                char* Str = malloc(msg->size + 128);
+                serialize_message(*msg,Str);
                 for (int i = 0; i < SESSION_CAPACITY; i++) {
                     if(Session->clients[i] != NULL && Session->clients[i] != Username){
-                        send_string_to_client(Session->clients[i]->sockfd, str);
+                        send_string_to_client(Session->clients[i]->sockfd, Str);
                     }
                 }
-                free(str);
+                free(Str);
             }
         }
     }
-}
+} 
 
 void handle_query(struct message* msg, int sockfd) {
     // Sends the list of users, and their active sessions back as reply.
@@ -503,13 +536,13 @@ void handle_query(struct message* msg, int sockfd) {
     strcpy(newMsg.source, "SERVER");
     newMsg.type = QU_ACK;
     newMsg.data[0] = '\0';
-    struct CLIENT_NODE* curr = client_info_head;
+    struct CLIENT_NODE* curr = client_head;
     int curr_length = 0;
     
     while (curr != NULL) {
         if (curr->sockfd != -1) {
             strcat(newMsg.data, curr->username);
-            strcat(newMsg.data, ": ");
+            strcat(newMsg.data, "- ");
             curr_length += strlen(curr->username) + 2;
             if (curr->active_session == NULL) {
                 strcat(newMsg.data, "no session\n");
@@ -536,36 +569,3 @@ void handle_query(struct message* msg, int sockfd) {
     send_message_to_client(sockfd, &newMsg);
 }
 
-
-// Helps with deleting a user from a session, and clearing the session too if it's now empty
-void remove_user_from_session(struct SESSION_NODE* session, struct CLIENT_NODE* client) {
-    int found = 0;
-    for (int i = 0; i < SESSION_CAPACITY; i++) {
-        if (session->clients[i] == client) {
-            session->clients[i] = NULL;
-            found = 1;
-            session->num_client--;
-
-            if (session->num_client == 0) {
-                struct SESSION_NODE* p = session->prev;
-                struct SESSION_NODE* n = session->next;
-
-                // No more clients in this session, erase it
-                if (p && n) {
-                    p->next = n;
-                    n->prev = p;
-                } else if (p) {
-                    p->next = NULL;
-                } else {
-                    if (n) 
-                        n->prev = NULL;
-                    session_info_head = n;
-                }
-            } else {
-                printf("There are still %d users in session\n", session->num_client);
-            }
-            break;
-        }
-    }
-    assert(found);
-}
