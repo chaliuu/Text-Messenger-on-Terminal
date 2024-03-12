@@ -63,7 +63,7 @@ int main(int argc, char const *argv[]) {
         }
 
         // Set timeout (for 2 seconds)
-        tv.tv_sec = 2;
+        tv.tv_sec = 300;
         tv.tv_usec = 0;
 
         retval = select((sockfd > STDIN_FILENO ? sockfd : STDIN_FILENO) + 1, &readfds, NULL, NULL, &tv);
