@@ -86,7 +86,8 @@ int main(int argc, char const *argv[]) {
                 // Only send messages if logged in (i.e., socket is valid)
                     send_message(msg);
                 } else if (sockfd != -1 && !(isLoggedIn)){
-                    printf("Not logged in. Please log in");
+                    printf("isLoggedIn: %d\n",isLoggedIn);
+                    printf("Not logged in. Please log in\n");
                 }
                 else {
                     printf("You are not connected to a server. Please log in first.\n");
@@ -232,6 +233,7 @@ int parse_command(char *input) {
             printf("Already in seshion %s\n", sID);
         }else{
             sscanf(input, "/joinsession %s", msg.data);
+            msg.type = JOIN;
         }
     } else if(strcmp(input, "/leavesession") == 0) {
         if(isInSesh){
@@ -245,7 +247,6 @@ int parse_command(char *input) {
     } else if(strncmp(input, "/createsession", 14) == 0) {
         msg.type = NEW_SESS;
         sscanf(input, "/createsession %s", msg.data);
-        printf("Session created! \n");
     } else if(strcmp(input, "/list") == 0) {
         msg.type = QUERY;
     } else if(strcmp(input, "/quit") == 0) {
