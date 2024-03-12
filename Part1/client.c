@@ -139,7 +139,7 @@ int connect_to_server(char *ip, char * port) {
     int rv;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET6; // set to AF_INET to use IPv4
+    hints.ai_family = AF_INET; // set to AF_INET to use IPv4
     hints.ai_socktype = SOCK_DGRAM;
 
     if ((rv = getaddrinfo(ip, port, &hints, &servinfo)) != 0) {
@@ -210,6 +210,7 @@ int parse_command(char *input) {
 
     if(strncmp(input, "/login", 6) == 0) {
         msg.type = LOGIN;
+        isLoggedIn = true;
         sscanf(input, "/login %s %s %s %s", msg.source, msg.data, IP, PORT); 
         strcpy(cID, (char *)msg.source);
     } else if(strcmp(input, "/logout") == 0) {
