@@ -87,11 +87,7 @@ int main(int argc, char const *argv[]) {
                         printf("Failed to connect to the server.\n");
                         continue;
                     }
-                        isConnected = true;
                 
-                    printf("mssg type: %d \n", msg.type);
-                    printf("mssg data: %s \n", msg.data);
-                    printf("isLoggedIn %d\n", isLoggedIn);
 
                     send_message(msg);
                 }else if (msg.type == EXIT){
@@ -114,9 +110,7 @@ int main(int argc, char const *argv[]) {
             
             //check messages from server
             if (sockfd != -1 && FD_ISSET(sockfd, &readfds)) {
-                printf("Receiving!\n");
                 int numBytes = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
-                printf("Numbytes %d\n",numBytes);
                 if (numBytes > 0) {
                     memset(&recv_msg, 0, sizeof(recv_msg));
                     deserialize_message(recv_buffer, &recv_msg);
@@ -147,11 +141,9 @@ int main(int argc, char const *argv[]) {
                     close(sockfd);
                     sockfd = -1; // Reset sockfd to indicate we're not connected
                 }
-            }else if (sockfd == -1){
-                printf("problem!\n");
             }
         }else{
-            printf("TIMEOUT! \n");
+            printf("Are you still there?\n");
         }
     }
 
@@ -191,34 +183,6 @@ int connect_to_server(char *ip, char * port) {
     freeaddrinfo(servinfo);
 
     return 0;
-
-    /*
-    struct sockaddr_in server;
-
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        printf("Could not create socket\n");
-        return -1;
-    }
-
-    server.sin_addr.s_addr = inet_addr(ip);
-    server.sin_family = AF_INET;
-    server.sin_port = htons(port);
-
-    if (connect(sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
-        perror("Connect failed");
-        return 1;
-    }
-
-    printf("Connected to server\n");
-
-    if(pthread_create(&recv_thread, NULL, receive_handler, (void*)&sock) < 0) {
-        perror("Could not create receive thread");
-        return 1;
-    }
-
-    return 0;
-    */
 }
 
 // Sends a message to the server
@@ -227,7 +191,6 @@ void send_message(struct message msg) {
     if(send(sockfd, send_buffer, strlen(send_buffer), 0) < 0) {
         puts("Send failed");
     }
-    printf("mssg_sent!: %s\n", send_buffer);
 }
 
 // Parses user input into a message structure
