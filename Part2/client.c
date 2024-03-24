@@ -14,7 +14,8 @@
 #define MAX_DATA 1024
 
 enum command_type {
-    LOGIN, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK
+    LOGIN, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK, 
+    PRIVATE_MESSAGE, PM_ACK, PM_NAK, REGISTER, REG_ACK, REG_NAK
 };
 
 struct message {
@@ -90,6 +91,7 @@ int main(int argc, char const *argv[]) {
                 
 
                     send_message(msg);
+
                 }else if (msg.type == EXIT){
                     send_message(msg);
                     memset(cID,0,sizeof(cID)); //clear cID
@@ -117,20 +119,46 @@ int main(int argc, char const *argv[]) {
                     if(recv_msg.type == MESSAGE){
                         //printf("%s", recv_buffer);
                         printf("%s: %s\n", recv_msg.source, recv_msg.data); //print received messages
-                    }else if (recv_msg.type == LO_NAK || recv_msg.type == JN_NAK){
+
+                    }else if(recv_msg.type == PRIVATE_MESSAGE){
+                        //printf("%s", recv_buffer);
+                        printf("PRIVATE MESSAGE FROM %s: %s\n", recv_msg.source, recv_msg.data); //print received private messages
+
+                    }else if (recv_msg.type == LO_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
+                        isLoggedIn == false;
+                    }
+                    else if (recv_msg.type == JN_NAK){
+                        printf("ERROR: %s\n", recv_msg.data);
+            
                     }else if (recv_msg.type == LO_ACK){
                         printf("Sucessfully logged in!\n");
+
                     }else if (recv_msg.type == JN_ACK){
                         isInSesh = true;
                         strcpy(sID, (char *)msg.data);
                         printf("Session joined with ID: %s\n", recv_msg.data);
+
                     }else if (recv_msg.type == NS_ACK){
                         isInSesh = true;
                         strcpy(sID, (char *)msg.data);
                         printf("Session created!\n");
+
                     }else if (recv_msg.type == QU_ACK){
                         printf("/*%s*/\n", recv_msg.data);
+
+                    }else if (recv_msg.type == REG_ACK){
+                        printf("Sucessfully registered!\n");
+
+                    }else if (recv_msg.type == REG_NAK){
+                        printf("ERROR: %s\n", recv_msg.data);
+                        isLoggedIn == false;
+                    }else if (recv_msg.type ==  PM_ACK){
+                        printf("Private message sent successfully!\n");
+
+                    }else if (recv_msg.type ==  PM_NAK){
+                        printf("ERROR: %s\n", recv_msg.data);
+
                     }
                 } else if (numBytes == 0){
                     printf("Connection closed by server\n");
@@ -244,7 +272,16 @@ int parse_command(char *input) {
         msg.type = EXIT;
         isQuit = true;
         printf("Quiting Program!\n");
-    } else {
+    } else if (strncmp(input, "/registeruser", 13)){   
+        msg.type = REGISTER;
+        sscanf(input, "/login %s %s %s %s", msg.source, msg.data, IP, PORT); 
+        strcpy(cID, (char *)msg.source);
+        isLoggedIn = true;
+    } else if (strncmp(input, "/pm", 3)){
+        msg.type = PRIVATE_MESSAGE;
+        strncpy((char *)msg.data, input, MAX_DATA);
+    }
+    else {
         msg.type = MESSAGE;
         strncpy((char *)msg.data, input, MAX_DATA);
     }
