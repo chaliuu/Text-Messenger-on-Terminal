@@ -4,7 +4,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <pthread.h>
 #include <errno.h>
 #include <sys/select.h>
 #include <sys/types.h>
@@ -15,7 +14,7 @@
 #define MAX_DATA 1024
 
 enum command_type {
-    LOGIN, LOGOUT, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK
+    LOGIN, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK
 };
 
 struct message {
@@ -25,18 +24,25 @@ struct message {
     unsigned char data[MAX_DATA];
 };
 
-int sockfd = -1;
-bool isLoggedIn;
-pthread_t recv_thread;
-char IP[128];
-char PORT[128];
-struct message msg;
+  int sockfd = -1; //Socket file descriptor
+    bool isLoggedIn;
+    bool isInSesh;
+    bool isQuit;
+    bool isConnected = false;
+    char IP[256];
+    char PORT[256];
+    char cID[MAX_NAME] = {0};
+    char sID[MAX_DATA] = {0};
+    struct message msg; //message to send from input
+    struct message recv_msg; //message recieved from server
 
-char input[MAX_DATA + MAX_NAME];
-char server_reply[MAX_DATA + MAX_NAME + 20];
-char send_buffer[MAX_DATA + MAX_NAME + 20]; // +20 for type, size, and separators
+    struct timeval tv;
+    int retval;
 
-void receive_handler();
+    char input[MAX_DATA + MAX_NAME] = {0};
+    char send_buffer[MAX_DATA + MAX_NAME + 20]; // +20 for type, size, and separators
+    char recv_buffer[MAX_DATA + MAX_NAME] = {0};
+
 void send_message(struct message msg);
 int parse_command(char *input);
 void serialize_message(struct message msg, char *output);
@@ -44,32 +50,100 @@ void deserialize_message(char *input, struct message *msg);
 int connect_to_server(char *ip, char* port);
 
 int main(int argc, char const *argv[]) {
-    
+    isQuit = false;
+    fd_set readfds;
     // Main loop for handling user input
-    while (1) {
-        fgets(input, sizeof(input), stdin);
-        input[strcspn(input, "\n")] = 0; // Remove trailing newline
+    while (!isQuit) {
+        //wipe buffer
+        memset(&input, 0, MAX_DATA + MAX_NAME);
+        memset(&send_buffer, 0, MAX_DATA + MAX_NAME);
+        memset(&recv_buffer, 0, MAX_DATA + MAX_NAME);
 
-        parse_command(input);
+        FD_ZERO(&readfds);
+        FD_SET(STDIN_FILENO, &readfds); // Standard input
+        FD_SET(sockfd, &readfds);
+        if (sockfd != -1) {
+            FD_SET(sockfd, &readfds);
+        }
 
-        if (msg.type == LOGIN) {
-            if (connect_to_server(IP, PORT) != 0) {
-                printf("Failed to connect to the server.\n");
-                continue;
+        // Set timeout (for 5 minutes)
+        tv.tv_sec = 300;
+        tv.tv_usec = 0;
+
+        retval = select((sockfd > STDIN_FILENO ? sockfd : STDIN_FILENO) + 1, &readfds, NULL, NULL, &tv);
+        if(retval == -1){
+            perror("select error");
+            exit(1);
+        } else if (retval){
+            //check stdin input
+            if(FD_ISSET(STDIN_FILENO, &readfds)) {
+                if(fgets(input, sizeof(input), stdin) != NULL){
+                    input[strcspn(input, "\n")] = 0; // Remove trailing newline
+                    parse_command(input);
+                }
+                if (msg.type == LOGIN){
+                    
+                    if (connect_to_server(IP, PORT) != 0) {
+                        printf("Failed to connect to the server.\n");
+                        continue;
+                    }
+                
+
+                    send_message(msg);
+                }else if (msg.type == EXIT){
+                    send_message(msg);
+                    memset(cID,0,sizeof(cID)); //clear cID
+                }else if (sockfd != -1 && isLoggedIn) {
+                // Only send messages if logged in (i.e., socket is valid)
+                    send_message(msg);
+                }else if (sockfd != -1 && !isLoggedIn){
+                    printf("Not logged in. Please log in\n");
+                }
+                else {
+                    printf("You are not connected to a server. Please log in first.\n");
+                }
+                if (msg.type == EXIT && isQuit) {
+                    printf("Exiting...\n");
+                    break;
+                }
             }
-        } else if (sockfd != -1 && isLoggedIn) {
-            // Only send messages if logged in (i.e., socket is valid)
-            send_message(msg);
-        } else if (sockfd != -1 && !(isLoggedIn)){
-            printf("Not logged in. Please log in");
-        }
-        else {
-            printf("You are not connected to a server. Please log in first.\n");
-        }
-
-        if (msg.type == EXIT) {
-            printf("Exiting...\n");
-            break;
+            
+            //check messages from server
+            if (sockfd != -1 && FD_ISSET(sockfd, &readfds)) {
+                int numBytes = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
+                if (numBytes > 0) {
+                    memset(&recv_msg, 0, sizeof(recv_msg));
+                    deserialize_message(recv_buffer, &recv_msg);
+                    if(recv_msg.type == MESSAGE){
+                        //printf("%s", recv_buffer);
+                        printf("%s: %s\n", recv_msg.source, recv_msg.data); //print received messages
+                    }else if (recv_msg.type == LO_NAK || recv_msg.type == JN_NAK){
+                        printf("ERROR: %s\n", recv_msg.data);
+                    }else if (recv_msg.type == LO_ACK){
+                        printf("Sucessfully logged in!\n");
+                    }else if (recv_msg.type == JN_ACK){
+                        isInSesh = true;
+                        strcpy(sID, (char *)msg.data);
+                        printf("Session joined with ID: %s\n", recv_msg.data);
+                    }else if (recv_msg.type == NS_ACK){
+                        isInSesh = true;
+                        strcpy(sID, (char *)msg.data);
+                        printf("Session created!\n");
+                    }else if (recv_msg.type == QU_ACK){
+                        printf("/*%s*/\n", recv_msg.data);
+                    }
+                } else if (numBytes == 0){
+                    printf("Connection closed by server\n");
+                    close(sockfd);
+                    sockfd = -1;
+                } else if (numBytes < 0 && errno != EWOULDBLOCK) {
+                    printf("Connection failed.\n");
+                    close(sockfd);
+                    sockfd = -1; // Reset sockfd to indicate we're not connected
+                }
+            }
+        }else{
+            printf("Are you still there?\n");
         }
     }
 
@@ -82,8 +156,8 @@ int connect_to_server(char *ip, char * port) {
     int rv;
 
     memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_INET6; // set to AF_INET to use IPv4
-    hints.ai_socktype = SOCK_DGRAM;
+    hints.ai_family = AF_INET; // set to AF_INET to use IPv4
+    hints.ai_socktype = SOCK_STREAM;
 
     if ((rv = getaddrinfo(ip, port, &hints, &servinfo)) != 0) {
         perror("getaddrinfo\n");
@@ -107,47 +181,8 @@ int connect_to_server(char *ip, char * port) {
     }
     
     freeaddrinfo(servinfo);
-    return 0;
-
-    /*
-    struct sockaddr_in server;
-
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        printf("Could not create socket\n");
-        return -1;
-    }
-
-    server.sin_addr.s_addr = inet_addr(ip);
-    server.sin_family = AF_INET;
-    server.sin_port = htons(port);
-
-    if (connect(sock, (struct sockaddr *)&server, sizeof(server)) < 0) {
-        perror("Connect failed");
-        return 1;
-    }
-
-    printf("Connected to server\n");
-
-    if(pthread_create(&recv_thread, NULL, receive_handler, (void*)&sock) < 0) {
-        perror("Could not create receive thread");
-        return 1;
-    }
 
     return 0;
-    */
-}
-
-void receive_handler() {
-    struct message msg;
-
-    while(1) {
-        if(recv(sockfd, server_reply, sizeof(server_reply), 0) > 0) {
-            deserialize_message(server_reply, &msg);
-            // Handle different types of messages here, for simplicity we just print
-            printf("Received: %s\n", msg.data);
-        }
-    }
 }
 
 // Sends a message to the server
@@ -160,31 +195,61 @@ void send_message(struct message msg) {
 
 // Parses user input into a message structure
 int parse_command(char *input) {
-    memset(&msg, 0, sizeof(msg)); // Initialize the message structure
+    memset(&msg, 0, sizeof(msg)); // Initialize/clear the message structure
 
     if(strncmp(input, "/login", 6) == 0) {
         msg.type = LOGIN;
         sscanf(input, "/login %s %s %s %s", msg.source, msg.data, IP, PORT); 
-    } else if(strcmp(input, "/logout") == 0) {
-        isLoggedIn = false;
-        msg.type = LOGOUT;
+        strcpy(cID, (char *)msg.source);
+        isLoggedIn = true;
+    } else if(strncmp(input, "/logout", 8) == 0) {
+        if(isLoggedIn){
+            isLoggedIn = false;
+            isInSesh = false;
+            msg.type = EXIT;
+            printf("Logged out of client with ID: %s\n", cID);
+        }else{
+            printf("Not logged In. Please log in before logging out\n");
+        }
     } else if(strncmp(input, "/joinsession", 12) == 0) {
-        msg.type = JOIN;
-        sscanf(input, "/joinsession %s", msg.data);
-    } else if(strcmp(input, "/leavesession") == 0) {
-        msg.type = LEAVE_SESS;
+        if(isInSesh){
+            printf("Already in seshion %s\n", sID);
+        }else{
+            sscanf(input, "/joinsession %s", msg.data);
+            msg.type = JOIN;
+            strcpy((char *)msg.source, cID);
+        }
+    } else if(strncmp(input, "/leavesession", 13) == 0) {
+        if(isInSesh){
+            msg.type = LEAVE_SESS;
+            isInSesh = false;
+            printf("Left Session with ID, %s\n", sID);
+            memset(sID,0,sizeof(sID)); //clear sID
+        }else{
+            printf("Not in a session. Please join a session before leaving one.\n");
+        }
     } else if(strncmp(input, "/createsession", 14) == 0) {
-        msg.type = NEW_SESS;
+        if(isInSesh){
+            printf("Already in seshion %s\n. Leave session before creating another one.\n", sID);
+        }else{
+            msg.type = NEW_SESS;
+        }
         sscanf(input, "/createsession %s", msg.data);
-    } else if(strcmp(input, "/list") == 0) {
+    } else if(strncmp(input, "/list", 5) == 0) {
         msg.type = QUERY;
-    } else if(strcmp(input, "/quit") == 0) {
+    } else if(strncmp(input, "/quit", 5) == 0) {
+        isLoggedIn = false;
+        isInSesh = false;
+        isConnected = false;
         msg.type = EXIT;
+        isQuit = true;
+        printf("Quiting Program!\n");
     } else {
         msg.type = MESSAGE;
         strncpy((char *)msg.data, input, MAX_DATA);
     }
 
+    strcpy((char *)msg.source, cID);
     msg.size = strlen((char *)msg.data); // Set the size of the data
     return 0;
 }
