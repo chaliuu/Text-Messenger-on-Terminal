@@ -34,6 +34,7 @@ struct message {
     char PORT[256];
     char cID[MAX_NAME] = {0};
     char sID[MAX_DATA] = {0};
+    char pmMssg[MAX_DATA];
     struct message msg; //message to send from input
     struct message recv_msg; //message recieved from server
 
@@ -160,9 +161,9 @@ int main(int argc, char const *argv[]) {
                         printf("Sucessfully registered!\n");
 
                     }else if (recv_msg.type == REG_NAK){
-                        printf("ERROR: %s\n", recv_msg.data);
+                        printf("REG ERROR: %s\n", recv_msg.data);
                     }else if (recv_msg.type ==  PM_NAK){
-                        printf("ERROR: %s\n", recv_msg.data);
+                        printf("PM ERROR: %s\n", recv_msg.data);
 
                     }
                 } else if (numBytes == 0){
@@ -246,7 +247,7 @@ int parse_command(char *input) {
         }
     } else if(strncmp(input, "/joinsession", 12) == 0) {
         if(isInSesh){
-            printf("Already in seshion %s\n", sID);
+            printf("Already in session %s\n", sID);
         }else{
             sscanf(input, "/joinsession %s", msg.data);
             msg.type = JOIN;
@@ -279,11 +280,14 @@ int parse_command(char *input) {
         printf("Quiting Program!\n");
     } else if (strncmp(input, "/register", 9) == 0){   
         msg.type = REGISTER;
-        sscanf(input, "/regsiter %s %s %s %s", msg.source, msg.data, IP, PORT); 
+        sscanf(input, "/register %s %s %s %s", msg.source, msg.data, IP, PORT); 
         strcpy(cID, (char *)msg.source);
     } else if (strncmp(input, "/pm", 3) == 0){
         msg.type = PRIVATE_MESSAGE;
-        strncpy((char *)msg.data, input, MAX_DATA);
+        sscanf(input, "/pm %s %s", msg.data, pmMssg);
+        strcat((char *)msg.data, " ");
+        strcat((char *)msg.data, pmMssg);
+        printf("msg.data for pm: %s\n", msg.data);
     }
     else {
         msg.type = MESSAGE;
