@@ -88,10 +88,19 @@ int main(int argc, char const *argv[]) {
                         printf("Failed to connect to the server.\n");
                         continue;
                     }
-                
 
                     send_message(msg);
 
+                }else if (msg.type == REGISTER){
+                    printf("...registering...\n");
+                    printf("IP: %s\n", IP);
+                    printf("PORT: %s\n", PORT);
+                    if (connect_to_server(IP, PORT) != 0) {
+                        printf("Failed to connect to the server.\n");
+                        continue;
+                    }
+                    send_message(msg);
+        
                 }else if (msg.type == EXIT){
                     send_message(msg);
                     memset(cID,0,sizeof(cID)); //clear cID
@@ -120,7 +129,7 @@ int main(int argc, char const *argv[]) {
                         //printf("%s", recv_buffer);
                         printf("%s: %s\n", recv_msg.source, recv_msg.data); //print received messages
 
-                    }else if(recv_msg.type == PRIVATE_MESSAGE){
+                    }else if(recv_msg.type == PM_ACK){
                         //printf("%s", recv_buffer);
                         printf("PRIVATE MESSAGE FROM %s: %s\n", recv_msg.source, recv_msg.data); //print received private messages
 
@@ -152,10 +161,6 @@ int main(int argc, char const *argv[]) {
 
                     }else if (recv_msg.type == REG_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
-                        isLoggedIn = false;
-                    }else if (recv_msg.type ==  PM_ACK){
-                        printf("Private message sent successfully!\n");
-
                     }else if (recv_msg.type ==  PM_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
 
@@ -188,7 +193,7 @@ int connect_to_server(char *ip, char * port) {
     hints.ai_socktype = SOCK_STREAM;
 
     if ((rv = getaddrinfo(ip, port, &hints, &servinfo)) != 0) {
-        perror("getaddrinfo\n");
+        perror("getaddrinfo error!\n");
         exit(1);
     }
     // loop through all the results and make a socket
@@ -272,12 +277,11 @@ int parse_command(char *input) {
         msg.type = EXIT;
         isQuit = true;
         printf("Quiting Program!\n");
-    } else if (strncmp(input, "/registeruser", 13)){   
+    } else if (strncmp(input, "/register", 9) == 0){   
         msg.type = REGISTER;
-        sscanf(input, "/login %s %s %s %s", msg.source, msg.data, IP, PORT); 
+        sscanf(input, "/regsiter %s %s %s %s", msg.source, msg.data, IP, PORT); 
         strcpy(cID, (char *)msg.source);
-        isLoggedIn = true;
-    } else if (strncmp(input, "/pm", 3)){
+    } else if (strncmp(input, "/pm", 3) == 0){
         msg.type = PRIVATE_MESSAGE;
         strncpy((char *)msg.data, input, MAX_DATA);
     }
