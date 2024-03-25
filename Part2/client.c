@@ -126,7 +126,7 @@ int main(int argc, char const *argv[]) {
 
                     }else if (recv_msg.type == LO_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
-                        isLoggedIn == false;
+                        isLoggedIn = false;
                     }
                     else if (recv_msg.type == JN_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
@@ -152,7 +152,7 @@ int main(int argc, char const *argv[]) {
 
                     }else if (recv_msg.type == REG_NAK){
                         printf("ERROR: %s\n", recv_msg.data);
-                        isLoggedIn == false;
+                        isLoggedIn = false;
                     }else if (recv_msg.type ==  PM_ACK){
                         printf("Private message sent successfully!\n");
 
