@@ -207,12 +207,12 @@ int main(int argc, char** argv) {
                         case QUERY:
                             handle_query(msg, i);
                             break;
-                        case PRIVATE_MESSAGE:
-                            private_message(msg,i);
-                            break;
                         case REGISTER:
                             register_user(msg,i);
                             FD_CLR(i, &master);
+                            break;
+                        case PRIVATE_MESSAGE:
+                            private_message(msg,i);
                             break;
                         default:
                             printf("No type is matched");
@@ -574,51 +574,51 @@ void handle_query(struct message* msg, int sockfd) {
 
 
 void private_message(struct message* msg, int sockfd){
-    //private message from one user to another.
+    //private message from one user to another one.
     struct message newMsg;
     strcpy(newMsg.source, "server");
     newMsg.type = PM_NAK;
     
+    
     struct CLIENT_NODE* sourceUsername = get_client_info(msg->source);
     if(sourceUsername != NULL && sourceUsername->sockfd == sockfd){
-        //try to extract destination information
-        char receiver[MAX_NAME];
-        char message[MAX_DATA];
+        //try to get receiver information
+        char receiver_username[MAX_NAME];
+        char Message[MAX_DATA];
         
-        // get receiver ID
+        // get receiver username
         char* delim = strtok(msg->data, " ");
         if (delim != NULL) {
-            strncpy(receiver, delim, MAX_NAME);
-            assert(receiver[MAX_NAME-1] == '\0');
+            strncpy(receiver_username, delim, MAX_NAME);
             
+            //get message
             delim = strtok(NULL, "\n");
             if (delim != NULL) {
-                strncpy(message, delim, MAX_DATA);
-                assert(message[MAX_DATA-1] == '\0');
+                strncpy(Message, delim, MAX_DATA);
             }
         }
         
         if(delim == NULL){
-            strcpy(newMsg.data, "Message formatting error");
+            strcpy(newMsg.data, "Message format problem");
         }else{
-            // Everything looks good so far, try to find the stated receiver
-            struct CLIENT_NODE* recvUsername = get_client_info(receiver);
-            if (recvUsername == NULL) {
-                strcpy(newMsg.data, "The receiving client does not exist");
-            }else if(recvUsername->sockfd == -1){
-                strcpy(newMsg.data, "The receiving client is not online");
+            // Now get all information from sender, need to check validity of receiver
+            struct CLIENT_NODE* Receiver = get_client_info(receiver_username);
+            if (Receiver == NULL) {
+                strcpy(newMsg.data, "The receiver doesn't exist");
+            }else if(Receiver->sockfd == -1){
+                strcpy(newMsg.data, "The receiver is offline");
             }else{
-                // We can send the message to the receiver
-                strcpy(newMsg.data,msg->data);
+                // now we can send message to the receiver
+                strncpy(newMsg.source, msg->source, MAX_NAME);//define source as sender
+                strcpy(newMsg.data,Message);
                 newMsg.size = strlen(newMsg.data) + 1;
                 newMsg.type = PM_ACK;
-                strncpy(newMsg.source, msg->source, MAX_NAME);
-                send_message_to_client(&newMsg,recvUsername->sockfd);
+                send_message_to_client(&newMsg,Receiver->sockfd);
                 return;
             }
         }      
     }else{
-        strcpy(newMsg.data, "An error was encountered by the server...");
+        strcpy(newMsg.data, "Error was triggered by the server");
     }
     newMsg.size = strlen(newMsg.data) + 1;
     send_message_to_client(&newMsg,sockfd);
@@ -631,22 +631,25 @@ void register_user(struct message* msg, int sockfd){
     
     struct CLIENT_NODE* existingUsername = get_client_info(msg->source);
     if(existingUsername != NULL){
-        strcpy(newMsg.data, "The username is registered.");
+        strcpy(newMsg.data, "This username is registered.");
     }else{
         FILE* fp = fopen(LOGIN_FILE, "a");
         if (fp == NULL){
-            strcpy(newMsg.data, "Server cannot write to the login file.");
+            strcpy(newMsg.data, "Cannot write to login file.");
         }else{
             fprintf(fp, "%s %s\n", msg->source, msg->data);
             strcpy(newMsg.data, "Registration successfully.");
             newMsg.type = REG_ACK;
+            printf("Registration successfully for client %s\n",msg->source);
             fclose(fp);
-            printf("Registration successfully for user %s\n",msg->source);
-            //refresh login information
+            //update login information to newest version
             client_head = read_login();
         }
     }
     newMsg.size = strlen(newMsg.data) + 1;
     send_message_to_client(&newMsg,sockfd);
 }
+
+
+
 
