@@ -11,7 +11,7 @@
 #include <stdbool.h>
 
 #define MAX_NAME 1024
-#define MAX_DATA 1024
+#define MAX_DATA 4096
 
 enum command_type {
     LOGIN, LO_ACK, LO_NAK, EXIT, JOIN, JN_ACK, JN_NAK, LEAVE_SESS, NEW_SESS, NS_ACK, MESSAGE, QUERY, QU_ACK, 
@@ -22,14 +22,13 @@ struct message {
     unsigned int type;
     unsigned int size;
     unsigned char source[MAX_NAME];
-    unsigned char data[MAX_DATA];
+    unsigned char data[MAX_DATA + MAX_NAME];
 };
 
   int sockfd = -1; //Socket file descriptor
     bool isLoggedIn;
     bool isInSesh;
     bool isQuit;
-    bool isConnected = false;
     char IP[256];
     char PORT[256];
     char cID[MAX_NAME] = {0};
@@ -84,7 +83,15 @@ int main(int argc, char const *argv[]) {
                     parse_command(input);
                 }
                 if (msg.type == LOGIN){
-                    
+
+                    //printf("...logging in...\n");
+                    //printf("IP: %s\n", IP);
+                    //printf("PORT: %s\n", PORT);
+                    //printf("mssg.type: %d\n", msg.type);
+                    //printf("mssg.size: %d\n", msg.size);
+                    //printf("msg.source: %s\n", msg.source);
+                    //printf("msg.data: %s\n", msg.data);
+
                     if (connect_to_server(IP, PORT) != 0) {
                         printf("Failed to connect to the server.\n");
                         continue;
@@ -93,9 +100,13 @@ int main(int argc, char const *argv[]) {
                     send_message(msg);
 
                 }else if (msg.type == REGISTER){
-                    printf("...registering...\n");
-                    printf("IP: %s\n", IP);
-                    printf("PORT: %s\n", PORT);
+                    //printf("...registering...\n");
+                    //printf("IP: %s\n", IP);
+                    //printf("PORT: %s\n", PORT);
+                    //printf("mssg.type: %d\n", msg.type);
+                    //printf("mssg.size: %d\n", msg.size);
+                    //printf("msg.source: %s\n", msg.source);
+                    //printf("msg.data: %s\n", msg.data);
                     if (connect_to_server(IP, PORT) != 0) {
                         printf("Failed to connect to the server.\n");
                         continue;
@@ -107,6 +118,11 @@ int main(int argc, char const *argv[]) {
                     memset(cID,0,sizeof(cID)); //clear cID
                 }else if (sockfd != -1 && isLoggedIn) {
                 // Only send messages if logged in (i.e., socket is valid)
+                    //printf("mssg.type: %d\n", msg.type);
+                    //printf("mssg.size: %d\n", msg.size);
+                    //printf("msg.source: %s\n", msg.source);
+                    //printf("msg.data: %s\n", msg.data);
+                    
                     send_message(msg);
                 }else if (sockfd != -1 && !isLoggedIn){
                     printf("Not logged in. Please log in\n");
@@ -264,7 +280,7 @@ int parse_command(char *input) {
         }
     } else if(strncmp(input, "/createsession", 14) == 0) {
         if(isInSesh){
-            printf("Already in seshion %s\n. Leave session before creating another one.\n", sID);
+            printf("Already in session %s\n. Leave session before creating another one.\n", sID);
         }else{
             msg.type = NEW_SESS;
         }
@@ -274,20 +290,23 @@ int parse_command(char *input) {
     } else if(strncmp(input, "/quit", 5) == 0) {
         isLoggedIn = false;
         isInSesh = false;
-        isConnected = false;
         msg.type = EXIT;
         isQuit = true;
         printf("Quiting Program!\n");
     } else if (strncmp(input, "/register", 9) == 0){   
-        msg.type = REGISTER;
-        sscanf(input, "/register %s %s %s %s", msg.source, msg.data, IP, PORT); 
-        strcpy(cID, (char *)msg.source);
+        if(isLoggedIn){
+            printf("Already loggedin as %s. Log Out before registering.\n", cID);
+        }else{
+            msg.type = REGISTER;
+            sscanf(input, "/register %s %s %s %s", msg.source, msg.data, IP, PORT); 
+            strcpy(cID, (char *)msg.source);
+        }
     } else if (strncmp(input, "/pm", 3) == 0){
         msg.type = PRIVATE_MESSAGE;
-        sscanf(input, "/pm %s %s", msg.data, pmMssg);
-        strcat((char *)msg.data, " ");
-        strcat((char *)msg.data, pmMssg);
-        printf("msg.data for pm: %s\n", msg.data);
+        
+        for(int i = 4; i < (MAX_DATA + MAX_NAME + 4); i++){
+            msg.data[i-4] = input[i]; ///copy input except for /pm 
+        }
     }
     else {
         msg.type = MESSAGE;
